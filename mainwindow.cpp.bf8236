@@ -1,0 +1,736 @@
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+
+#include <QSerialPortInfo>
+#include <QMessageBox>
+#include <QDebug>
+#include <QFileDialog>
+
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    isPortOpened = false;
+
+    readData.clear();
+    rxCount = 0;
+    txCount = 0;
+    //帧扩展模块初始化
+    isDelete = false;
+    isExDisplay = false;
+    ui->exFrameBox->hide();
+    connect(ui->exBtn, SIGNAL(clicked()), this, SLOT(on_action_3_triggered()));
+
+    //扫描可用设备
+    foreach (const QSerialPortInfo &info,\
+             QSerialPortInfo::availablePorts()) {
+        ui->portComBox->addItem(info.portName());
+    }
+    //默认端口配置 9600-8-N-1
+    this->serialPort = new QSerialPort(ui->portComBox->currentText());
+    ui->baudComBox->setCurrentIndex(3);
+    ui->dataComBox->setCurrentIndex(3);
+    ui->parComBox->setCurrentIndex(0);
+    ui->stopComBox->setCurrentIndex(0);
+
+
+    //小工具初始化
+    for(int i=0; i<128; i++)
+    {
+        ui->toolComBox->addItem(tr("%1").arg((char)i));
+    }
+    ui->toolComBox->setCurrentIndex(65);
+    ui->toolLdt->setText("0x"+ui->toolComBox->currentText().toLocal8Bit().toHex());
+
+
+    //扩展帧
+    connect(ui->addFrameBtn, SIGNAL(clicked()), this, SLOT(addFrameSlot()));
+    connect(ui->deleteFrameBtn, SIGNAL(clicked()), this, SLOT(deleteFrame()));
+
+    connect(&displayTimer, SIGNAL(timeout()), this, SLOT(displaySlot()));
+    connect(&autoSendTimer, SIGNAL(timeout()), this, SLOT(on_sendBtn_clicked()));
+    connect(serialPort, SIGNAL(readyRead()), this, SLOT(readSlot()));
+    connect(ui->openPortAct, SIGNAL(triggered()),this, SLOT(on_openOrCloseBtn_clicked()));
+    connect(ui->closeAct, SIGNAL(triggered()), this, SLOT(close()));
+
+    //扩展帧保存
+    connect(ui->configInAct, SIGNAL(triggered()), this, SLOT(loadFrame()));
+    connect(ui->configOutAct, SIGNAL(triggered()), this, SLOT(saveFrame()));
+    //加载扩展帧
+    this->frameFile.setFileName("./exframe.bin");
+    this->loadFrame();
+    //服务器
+    singleServer = ServerWidget::getInstance();
+    connect(singleServer,SIGNAL(readMessageSignal(QByteArray)),
+            this,SLOT(server_send_to_serial_port(QByteArray)));
+    connect(this,SIGNAL(sendMegSignal(QByteArray)),
+            this,SLOT(test_time(QByteArray)));
+//    connect(ui->startServer,SIGNAL(clicked(bool)),
+//            singleServer,SLOT(startTcpserver()));
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+    delete serialPort;
+}
+void MainWindow::test_time(QByteArray data)
+{
+   //解析读取到的frid卡号
+   //01 01 0a e2 d1 bc a7 d7 2b ff
+    qDebug() << data.toHex() << "$";
+    QByteArray hex = data.toHex();
+    QByteArray car;
+    QByteArray rfid;
+    for (int i = 6;i<10;i++) {
+//        qDebug() << hex.at(i) << "$";
+        car.append(hex.at(i));
+    }
+
+    for (int i = 10;i<18;i++) {
+//        qDebug() << hex.at(i) << "$";
+        rfid.append(hex.at(i));
+    }
+
+
+
+
+    QByteArray stopRfid;
+    QString temp;
+    temp = ui->stopRFID->text();
+    qDebug() << temp << "$ temp";
+    stopRfid = temp;
+//    stringToHex(temp, stopRfid);
+    QByteArray leftRfid;
+    temp = ui->leftRFID->text();
+//    stringToHex(temp, leftRfid);
+    QByteArray rightRfid;
+    temp = ui->rightRFID->text();
+//    stringToHex(temp, rightRfid);
+
+    QByteArray  hexData;
+    hexData.append("000200");
+    hexData.append(car);
+
+
+    qDebug() << car << " $ car ";
+    qDebug() << rfid << " $ rfid ";
+    qDebug() << stopRfid << " $ stopRfid ";
+
+
+    if(rfid == stopRfid){
+        qDebug() << "stopRfid ************************";
+        hexData.append("00");
+        }
+    if(rfid == leftRfid){
+        qDebug() << "leftRfid ************************";
+        hexData.append("02");
+        }
+    if(rfid == rightRfid){
+        qDebug() << "rightRfid ************************";
+        hexData.append("03");
+        }
+    hexData.append("ff");
+
+//    QString src = data;
+//    stringToHex(src, hexData);
+    hexData = "000400e2d10fff";
+
+    serialPort->write(hexData);
+}
+
+//!--1
+void MainWindow::refreshPort()
+{
+    if(!isPortOpened){
+        //清除当前设备
+        ui->portComBox->clear();
+        //扫描可用设备
+        foreach (const QSerialPortInfo &info,\
+                 QSerialPortInfo::availablePorts()) {
+            ui->portComBox->addItem(info.portName());
+        }
+    }
+}
+//获取数据
+void MainWindow::readSlot()
+{
+    QByteArray  temp;
+    temp = serialPort->readAll();
+    qDebug() << temp.toHex()<< "%%";
+    if(!temp.isEmpty())
+    {
+        readMutex.lock();
+        readData.append(temp);
+        rfidRead.append(temp);
+        if(10==rfidRead.length()){
+            //读到固定长度表示一条命令读取结束
+            //这里发送信号，给小车方式控制命令
+            qDebug() << "one sendMegSignal";
+            emit sendMegSignal(rfidRead);
+
+            //清空
+            rfidRead.clear();
+
+        }
+
+
+        readMutex.unlock();
+    }
+}
+//显示数据
+void MainWindow::displaySlot()
+{
+
+    readMutex.lock();
+    QByteArray temp = readData.toHex();
+    if(!readData.isEmpty()){
+        if(ui->hexRecv->isChecked())
+        { 
+            for(int i=0; i<temp.length(); i+=2)
+            {
+                ui->textEdit->insertPlainText(tr("%1%2 ")\
+                                              .arg(temp.at(i))\
+                                              .arg(temp.at(i+1)));
+            }
+        }
+        else
+        {
+
+            ui->textEdit->insertPlainText(readData);
+        }
+        //当前数据追加到缓冲区
+        displayBuffer.append(readData);
+        for(int i=0; i<temp.length(); i+=2)
+        {
+            displayHexBuffer.append(tr("%1%2 ")\
+                                    .arg(temp.at(i))\
+                                    .arg(temp.at(i+1)));
+        }
+        //设置接收数据量
+        rxCount += readData.count();
+        ui->rxCounterLbl->setText(tr("RX: %1").arg(rxCount));
+        readData.clear();
+    }
+    readMutex.unlock();
+}
+
+//!--1
+
+//!--3
+QSerialPort::BaudRate MainWindow::getBaud()
+{
+    QSerialPort::BaudRate baud;
+    baud = (QSerialPort::BaudRate)ui->baudComBox->currentText().toUInt();
+    return baud;
+}
+
+QSerialPort::DataBits MainWindow::getDataBit()
+{
+    QSerialPort::DataBits dataBit;
+    dataBit = (QSerialPort::DataBits)ui->baudComBox->currentText().toUInt();
+    return dataBit;
+}
+
+QSerialPort::Parity MainWindow::getParity()
+{
+    int i = ui->parComBox->currentIndex();
+
+    if(0 == i){
+        return QSerialPort::NoParity;
+    } else if(1 == i){
+        return QSerialPort::EvenParity;
+    } else if(2 == i){
+        return QSerialPort::OddParity;
+    } else if(3 == i){
+        return QSerialPort::SpaceParity;
+    } else if(4 == i){
+        return QSerialPort::MarkParity;
+    }
+
+    return QSerialPort::UnknownParity;
+}
+
+QSerialPort::StopBits MainWindow::getStopBit()
+{
+    int i = ui->stopComBox->currentIndex();
+
+    if(0 == i){
+        return QSerialPort::OneStop;
+    }
+    else if(1 == i){
+        return QSerialPort::OneAndHalfStop;
+    }
+    else if(2 == i){
+        return QSerialPort::TwoStop;
+    }
+    return QSerialPort::UnknownStopBits;
+}
+
+int MainWindow::stringToHex(QString &str, QByteArray &senddata)
+{
+    int hexdata,lowhexdata;
+    int hexdatalen = 0;
+    int len = str.length();
+    senddata.resize(len/2);
+    char lstr,hstr;
+    for(int i=0; i<len; )
+    {
+        //char lstr,
+        hstr=str[i].toLatin1();
+        if(hstr == ' '){
+            i++;
+            continue;
+        }
+        i++;
+        if(i >= len)break;
+        lstr = str[i].toLatin1();
+        hexdata = charToHex(hstr);
+        lowhexdata = charToHex(lstr);
+        if((hexdata == 16) || (lowhexdata == 16))
+            break;
+        else
+            hexdata = hexdata*16+lowhexdata;
+        i++;
+        senddata[hexdatalen] = (char)hexdata;
+        hexdatalen++;
+    }
+    senddata.resize(hexdatalen);
+    return senddata.size();
+}
+
+char MainWindow::charToHex(char ch)
+{
+    if((ch>='0')&&(ch<='9'))
+        return ch-0x30;
+    else if((ch>='a')&&(ch<='z'))
+        return ch-'a'+10;
+    else if((ch>='A')&&(ch<='Z'))
+        return ch-'A'+10;
+    else
+        return -1;
+}
+
+//!--3
+
+//!--2
+void MainWindow::on_openOrCloseBtn_clicked()
+{
+    if(isPortOpened){
+        displayTimer.stop();
+        serialPort->close();
+        isPortOpened = false;
+        ui->openOrCloseBtn->setText(tr("Connect"));
+        ui->openPortAct->setText(tr("Connect"));
+        ui->openPortAct->setIcon(QIcon(":/images/disconnect.png"));
+        ui->openOrCloseBtn->setIcon(QIcon(":/images/disconnect.png"));
+    }
+    else
+    {
+        //判断是否有可用设备
+        if(ui->portComBox->count() == 0)
+        {
+            QMessageBox::information(this, tr("Open Port"),\
+                                     tr("No devices."),\
+                                     QMessageBox::Ok);
+            return;
+        }
+        else
+        {
+            QString portName = ui->portComBox->currentText();
+            this->serialPort->setPortName(portName);
+            isPortOpened = serialPort->open(QIODevice::ReadWrite);
+            if(isPortOpened)
+            {
+                serialPort->setBaudRate(getBaud());
+                serialPort->setDataBits(getDataBit());
+                serialPort->setParity(getParity());
+                serialPort->setStopBits(getStopBit());
+                ui->openOrCloseBtn->setText(tr("DisConn"));
+                displayTimer.start(100);
+                ui->openPortAct->setText(tr("DisConn"));
+                ui->openPortAct->setIcon(QIcon(":/images/connect.png"));
+                ui->openOrCloseBtn->setIcon(QIcon(":/images/connect.png"));
+            }
+            else
+            {
+                QMessageBox::warning(this, tr("Open Port Error."),\
+                                 tr("Open [%1] Error:%2")\
+                                 .arg(portName)\
+                                 .arg(serialPort->errorString()),\
+                                 QMessageBox::Ok);
+                return;
+            }
+        }
+    }
+}
+
+void MainWindow::on_refreshPortAct_triggered()
+{
+    refreshPort();
+}
+void MainWindow::server_send_to_serial_port(QByteArray data)
+{
+    qDebug() << "server_send_to_serial_port";
+//    QByteArray writeData;
+
+    if(!isPortOpened)
+    {
+        QMessageBox::information(this, tr("Send Data."),\
+                                 tr("Port Not Opened."),\
+                                 QMessageBox::Ok);
+        this->on_autoSendCheckBox_clicked(false);
+        return;
+    }
+
+//    writeData = ui->sendLdt->text().toLocal8Bit();
+//    if(writeData.isEmpty()){
+//        QMessageBox::information(this, tr("Send Data."),\
+//                                 tr("No data to send."),\
+//                                 QMessageBox::Ok);
+//        this->on_autoSendCheckBox_clicked(false);
+//    }
+//    else
+//    {
+//        if(ui->hexSend->isChecked())
+//        {
+            QByteArray  hexData;
+            QString src = data;
+//            QString     src = ui->sendLdt->text();
+            stringToHex(src, hexData);
+            serialPort->write(hexData);
+//            txCount += data.count();
+//        }
+//        else
+//        {
+//            serialPort->write(writeData);
+//            txCount += writeData.count();
+//        }
+
+//        ui->txCounterLbl->setText(tr("TX: %1").arg(txCount));
+//    }
+
+}
+
+void MainWindow::on_sendBtn_clicked()
+{
+    QByteArray writeData;
+
+    if(!isPortOpened)
+    {
+        QMessageBox::information(this, tr("Send Data."),\
+                                 tr("Port Not Opened."),\
+                                 QMessageBox::Ok);
+        this->on_autoSendCheckBox_clicked(false);
+        return;
+    }
+
+    writeData = ui->sendLdt->text().toLocal8Bit();
+    if(writeData.isEmpty()){
+        QMessageBox::information(this, tr("Send Data."),\
+                                 tr("No data to send."),\
+                                 QMessageBox::Ok);
+        this->on_autoSendCheckBox_clicked(false);
+    }
+    else
+    {
+        if(ui->hexSend->isChecked())
+        {
+            QByteArray  data;
+            QString     src = ui->sendLdt->text();
+            stringToHex(src, data);
+            serialPort->write(data);
+            txCount += data.count();
+        }
+        else
+        {
+            serialPort->write(writeData);
+            txCount += writeData.count();
+        }
+
+        ui->txCounterLbl->setText(tr("TX: %1").arg(txCount));
+    }
+}
+
+void MainWindow::on_clearBtn_clicked()
+{
+    ui->textEdit->clear();
+    rxCount = 0;
+    txCount = 0;
+    ui->rxCounterLbl->setText(tr("RX: 0"));
+    ui->txCounterLbl->setText(tr("TX: 0"));
+    displayBuffer.clear();
+    displayHexBuffer.clear();
+}
+
+void MainWindow::on_autoSendCheckBox_clicked(bool checked)
+{
+    if(checked)
+    {
+        ui->configGroupBox->setEnabled(false);
+        ui->sendBtn->setEnabled(false);
+        ui->sendLdt->setEnabled(false);
+        ui->autoSendTime->setEnabled(false);
+        autoSendTimer.start(ui->autoSendTime->text().toUInt());
+    }
+    else
+    {
+        autoSendTimer.stop();
+        ui->configGroupBox->setEnabled(true);
+        ui->sendBtn->setEnabled(true);
+        ui->sendLdt->setEnabled(true);
+        ui->autoSendTime->setEnabled(true);
+        ui->autoSendCheckBox->setChecked(false);
+    }
+}
+
+void MainWindow::on_hexSend_clicked(bool checked)
+{
+    if(checked)
+    {
+        ui->sendLdt->setText(this->hexSendBuffer);
+    }
+    else
+    {
+        ui->sendLdt->setText(this->normalSendBuffer);
+    }
+}
+
+void MainWindow::on_hexRecv_clicked(bool checked)
+{
+    if(checked)
+    {
+        ui->textEdit->clear();
+        ui->textEdit->insertPlainText(displayHexBuffer);
+    }
+    else
+    {
+        ui->textEdit->clear();
+        ui->textEdit->insertPlainText(displayBuffer);
+    }
+}
+
+void MainWindow::on_baudComBox_currentIndexChanged(const QString &/*arg1*/)
+{
+    if(isPortOpened){
+        on_openOrCloseBtn_clicked();
+        on_openOrCloseBtn_clicked();
+    }
+}
+
+void MainWindow::on_dataComBox_currentIndexChanged(const QString &/*arg1*/)
+{
+    if(isPortOpened){
+        on_openOrCloseBtn_clicked();
+        on_openOrCloseBtn_clicked();
+    }
+}
+
+void MainWindow::on_portComBox_currentIndexChanged(const QString &/*arg1*/)
+{
+    if(isPortOpened){
+        on_openOrCloseBtn_clicked();
+        on_openOrCloseBtn_clicked();
+    }
+}
+
+void MainWindow::on_sendLdt_textChanged(const QString &arg1)
+{
+    if(ui->hexSend->isChecked())
+    {
+        hexSendBuffer.clear();
+        hexSendBuffer.append(arg1);
+    }
+    else
+    {
+        normalSendBuffer.clear();
+        normalSendBuffer.append(arg1);
+    }
+}
+
+void MainWindow::on_addCheckBox_clicked()
+{
+    //没用
+}
+
+//添加发送校验
+void MainWindow::on_addCheckBox_clicked(bool checked)
+{
+    QString src;
+    QByteArray  data;
+    char    ch;
+
+    if(ui->hexSend->isChecked())
+    {
+        if(checked)
+        {
+            src = ui->sendLdt->text();
+            if(!src.isEmpty())
+            {
+                stringToHex(src, data);
+                ch = data.at(0);
+
+                for(int i=1; i<data.length(); i++)
+                {
+                    ch ^= data.at(i);
+                }
+                QByteArray  temp(&ch, 1);
+                hexSendBuffer.append(' ');
+                hexSendBuffer.append(temp.toHex());
+                ui->sendLdt->setText(hexSendBuffer);
+            }
+        }
+        else
+        {
+            hexSendBuffer.remove(hexSendBuffer.length()-1, hexSendBuffer.length());
+            hexSendBuffer.remove(hexSendBuffer.length()-1, hexSendBuffer.length());
+            hexSendBuffer.remove(hexSendBuffer.length()-1, hexSendBuffer.length());
+            ui->sendLdt->setText(hexSendBuffer);
+        }
+    }
+    else
+    {
+        QMessageBox::information(this, "Add Parity.",\
+                                 tr("Only used in hex mode."),\
+                                 QMessageBox::Ok);
+        ui->addCheckBox->setChecked(false);
+    }
+}
+
+void MainWindow::on_toolComBox_currentIndexChanged(const QString &arg1)
+{
+    ui->toolLdt->setText("0x"+arg1.toLocal8Bit().toHex());
+}
+void MainWindow::on_action_3_triggered()
+{
+    if(isExDisplay)
+    {
+        ui->exFrameBox->hide();
+        ui->exBtn->setText(tr("ExFrame"));
+        isExDisplay = false;
+    }
+    else
+    {
+        ui->exFrameBox->show();
+        ui->exBtn->setText(tr("Hide"));
+        isExDisplay = true;
+    }
+}
+
+
+
+//!--2
+
+//! --5
+
+void    MainWindow::saveFrame()
+{
+    //如果没有扩展帧则直接返回
+    if(frameList.isEmpty())return;
+
+    frameFile.open(QIODevice::WriteOnly|QIODevice::Truncate);
+    char    ch = '\n';
+    frameFile.resize(0);
+    QTextStream out(&frameFile);
+    for(int i=0; i<frameList.size()-1; i++)
+    {
+        out<<frameList[i]->getFrameName()<<ch;
+        out<<frameList[i]->getFrame()<<ch;
+    }
+    out<<frameList.last()->getFrameName()<<ch;
+    out<<frameList.last()->getFrame();
+    frameFile.close();
+}
+
+void    MainWindow::loadFrame()
+{
+    frameFile.open(QIODevice::ReadOnly|QIODevice::Truncate);
+    QTextStream in(&frameFile);
+    while(!in.atEnd()){
+        this->addFrameSlot();
+        QString name(in.readLine());
+        frameList.last()->setFrameName(name);
+        QString frame(in.readLine());
+        frameList.last()->setFrame(frame);
+    }
+    frameFile.close();
+}
+
+void    MainWindow::deleteFrame()
+{
+    if(isDelete)
+    {//删除已经选择的帧帧
+        for(int i=0; i<frameList.size(); i++){
+            if(frameList[i]->isDel()){
+                //在界面中删除
+                ui->frameBox->layout()->removeWidget(frameList[i]);
+                //在数组中删除
+                delete frameList[i];
+                frameList.removeAt(i);
+                i--;
+                }
+        }
+        isDelete = false;
+        ui->deleteFrameBtn->setText(tr("Remove"));
+        for(int i=0; i<frameList.size(); i++){
+            frameList[i]->setDelCheckEnable(false);
+        }
+    }
+    else
+    {//选择要删除的帧
+        if(frameList.isEmpty()){
+            QMessageBox::warning(this, tr("Remove Frame"),\
+                                     tr("No Frame To Remove."),\
+                                     QMessageBox::Ok);
+        } else {
+            for(int i=0; i<frameList.size(); i++){
+                    frameList[i]->setDelCheckEnable(true);
+            }
+            isDelete = true;
+            ui->deleteFrameBtn->setText(tr("OK"));
+        }
+    }
+}
+
+void    MainWindow::addFrameSlot()
+{
+    FrameWidget*    frame = new FrameWidget;
+    this->frameList.append(frame);
+    ui->frameBox->layout()->removeItem(ui->verSpacer);
+    ui->frameBox->layout()->addWidget(frame);
+    ui->frameBox->layout()->addItem(ui->verSpacer);
+
+    connect(frame, SIGNAL(sendFrame(QString&,FrameWidget::SendMode&)),\
+            this, SLOT(sendFrameSlot(QString&,FrameWidget::SendMode&)));
+}
+
+void    MainWindow::sendFrameSlot(QString &frame, FrameWidget::SendMode &mode)
+{
+    if(FrameWidget::Normal == mode)
+    {
+        ui->hexSend->setChecked(false);
+        ui->sendLdt->setText(frame);
+        on_sendBtn_clicked();
+    }
+    else if(FrameWidget::Hex == mode)
+    {
+        ui->hexSend->setChecked(true);
+        ui->sendLdt->setText(frame);
+        on_sendBtn_clicked();
+    }
+}
+//! --5
+//! --6
+void MainWindow::closeEvent(QCloseEvent *)
+{
+    if(isPortOpened){
+        on_openOrCloseBtn_clicked();
+    }
+    this->saveFrame();
+}
+//! --6
+
+
+

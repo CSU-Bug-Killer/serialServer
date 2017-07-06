@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/">
+        <file>images/sp2.png</file>
+        <file>images/icon1.png</file>
+        <file>images/clear.png</file>
+        <file>images/connect.png</file>
+        <file>images/disconnect.png</file>
+        <file>images/exit.png</file>
+        <file>images/settings.png</file>
+        <file>images/MB_0015_reload.png</file>
+        <file>images/MB_0019_shut-down.png</file>
+    </qresource>
+</RCC>
+
