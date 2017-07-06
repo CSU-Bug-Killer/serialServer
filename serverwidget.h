@@ -31,11 +31,18 @@ public slots:
     void readMessage();
 private:
 
+    void controlDirection(QString device,QString direction);
+    void controlCarLight(QString device,QString headLeft,QString headRight,QStirng roofLigntRed,QString rootLightBlue);
+    void controlSpeakers(QString device,QString control);
+    void controlRoadLight(QString device,QString statusRoadLight1,QString statusRoadLight2);
+
     ServerWidget(QWidget *parent = 0);
 
     QTcpServer *m_tcpServer;
 //    QTcpSocket *m_tcpSocket;
     QList<QTcpSocket*> m_tcpSockets;
+
+    void parseMsg(QString json);
 };
 
 #endif // SERVERWIDGET_H
