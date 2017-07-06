@@ -258,7 +258,6 @@ void ServerWidget::controlRoadLight(QString device,QString statusRoadLight1,QStr
     command.append("ff");
 
     emit readMessageSignal(command.toStdString().c_str());
-
 }
 
 
