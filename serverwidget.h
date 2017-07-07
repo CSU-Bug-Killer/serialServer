@@ -31,6 +31,8 @@ public slots:
     void sendMessage();
     void newConnect();
     void readMessage();
+    void tSlot(QString ss);
+    void fSlot();
 private:
 
     void controlDirection(QString device,QString direction);

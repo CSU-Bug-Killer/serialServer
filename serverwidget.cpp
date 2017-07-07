@@ -46,11 +46,30 @@ void ServerWidget::newConnect()
 
     m_tcpSockets.append(m_tcpSocket);
 
-//    HandleClientSocketThread *socThread = new HandleClientSocketThread(m_tcpSocket,serialPort);
-//    socThread->start();
+    HandleClientSocketThread *socThread = new HandleClientSocketThread(m_tcpSocket);
+
+    socThread->start();
+
+    connect(socThread,SIGNAL(readMessageSignal(QString)),
+            this,SLOT(tSlot(QString)));
+    connect(socThread, SIGNAL(finished()), socThread, SLOT(deleteLater()));
+    connect(socThread, SIGNAL(finished()), this, SLOT(fSlot()));
+
 
         //第二个this换成线程
-        connect(m_tcpSocket,SIGNAL(readyRead()),this,SLOT(readMessage())); //有可读的信息，触发读函数槽
+//        connect(m_tcpSocket,SIGNAL(readyRead()),this,SLOT(readMessage())); //有可读的信息，触发读函数槽
+
+}
+
+void ServerWidget::fSlot(){
+    qDebug() << "finish    fSlot";
+
+}
+
+void ServerWidget::tSlot(QString ss){
+    qDebug() << "tSlot";
+    //socket的信号转成server的发出去
+    emit readMessageSignal(ss);
 }
 
 void ServerWidget::readMessage()
@@ -139,8 +158,9 @@ void ServerWidget::parseMsgFromClient(QString json)
 //                qDebug() << "directionData:" << sendData["directionData"];
             }
         }else{
-            qFatal(error.errorString().toUtf8().constData());
-            exit(1);
+            qDebug() << "illegal value";
+//            qFatal(error.errorString().toUtf8().constData());
+//            exit(1);
         }
 }
 

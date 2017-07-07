@@ -67,8 +67,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     //服务器
     singleServer = ServerWidget::getInstance();
-//    connect(singServer,SIGNAL(),
-//            );
+
 
 
     connect(singleServer,SIGNAL(readMessageSignal(QString)),
