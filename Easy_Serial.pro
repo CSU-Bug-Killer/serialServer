@@ -15,11 +15,15 @@ TEMPLATE = app
 SOURCES += main.cpp\
         mainwindow.cpp \
     framewidget.cpp \
-    serverwidget.cpp
+    serverwidget.cpp \
+    handleclientsocketthread.cpp \
+    deviceinfo.cpp
 
 HEADERS  += mainwindow.h \
     framewidget.h \
-    serverwidget.h
+    serverwidget.h \
+    handleclientsocketthread.h \
+    deviceinfo.h
 
 FORMS    += mainwindow.ui \
     framewidget.ui

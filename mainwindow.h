@@ -38,8 +38,10 @@ protected:
     void    closeEvent(QCloseEvent *);
 //! --6
 private slots:
-    void server_send_to_serial_port(QByteArray data);
-    void test_time(QByteArray data);
+    void logDevice(QByteArray data);
+    void setLogDevice();
+    void server_send_to_serial_port(QString data);
+//    void test_time(QByteArray data);
 //!--2
     void on_openOrCloseBtn_clicked();
 
@@ -73,7 +75,9 @@ private slots:
 //!--2
 
 private:
+
     QByteArray car;
+    bool isLogDevice = false;
 //!--3
     //从界面上获取配置信息
     QSerialPort::BaudRate   getBaud(void);

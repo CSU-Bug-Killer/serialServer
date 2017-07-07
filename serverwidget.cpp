@@ -3,6 +3,9 @@
 #include <QTcpServer>
 #include <QJsonParseError>
 
+#include "handleclientsocketthread.h"
+#include "deviceinfo.h"
+
 ServerWidget::ServerWidget(QWidget *parent) : QWidget(parent)
 {
     this->startTcpserver();
@@ -11,12 +14,16 @@ ServerWidget::ServerWidget(QWidget *parent) : QWidget(parent)
 void ServerWidget::startTcpserver()
 {
     qDebug() << "Start Server.";
+    if(!m_tcpServer){
+        qDebug() << "sss";
+    }
         //如果m_tcpServer为空则不进行服务器初始化操作
-        if(!m_tcpServer){
+//        if(!m_tcpServer){
+            qDebug() << "new server";
         m_tcpServer = new QTcpServer(this);
         m_tcpServer->listen(QHostAddress::Any,9527); //监听任何连上19999端口的ip
         connect(m_tcpServer,SIGNAL(newConnection()),this,SLOT(newConnect())); //新连接信号触发，调用newConnect()槽函数，这个跟信号函数一样。
-        }
+//        }
 
 
 }
@@ -35,10 +42,15 @@ void ServerWidget::sendMessage()
 void ServerWidget::newConnect()
 {
     qDebug() << "new connect";
-        QTcpSocket *m_tcpSocket = m_tcpServer->nextPendingConnection(); //得到每个连进来的socket
-        m_tcpSockets.append(m_tcpSocket);
-        connect(m_tcpSocket,SIGNAL(readyRead()),this,SLOT(readMessage())); //有可读的信息，触发读函数槽
+    QTcpSocket *m_tcpSocket = m_tcpServer->nextPendingConnection(); //得到每个连进来的socket
 
+    m_tcpSockets.append(m_tcpSocket);
+
+//    HandleClientSocketThread *socThread = new HandleClientSocketThread(m_tcpSocket,serialPort);
+//    socThread->start();
+
+        //第二个this换成线程
+        connect(m_tcpSocket,SIGNAL(readyRead()),this,SLOT(readMessage())); //有可读的信息，触发读函数槽
 }
 
 void ServerWidget::readMessage()
@@ -55,7 +67,8 @@ void ServerWidget::readMessage()
             break;
         }
     }
-    qDebug()<<message;
+    qDebug()<<message << "readMessage";
+    parseMsgFromClient(message);
 
 
     //
@@ -67,7 +80,7 @@ void ServerWidget::readMessage()
 
 }
 
-void ServerWidget::parseMsg(QString json)
+void ServerWidget::parseMsgFromClient(QString json)
 {
     qDebug() << "parseMsg";
 //        QString json("{"
@@ -98,15 +111,32 @@ void ServerWidget::parseMsg(QString json)
 
                 }else if("speakers" == sendType){
                     qDebug() << "parse speakers";
-                }else if("roadLight" == sengdType){
+                }else if("roadLight" == sendType){
                     qDebug() << "parse roadLight";
+
+                    QVariantMap sendData = data["sendData"].toMap();
+
+                    qDebug() << sendData["device"].toString();
+                    qDebug() << sendData["status1"].toString();
+                    qDebug() << sendData["status2"].toString();
+
+                    QString device = sendData["device"].toString();
+                    QString status1 =sendData["status1"].toString();
+                    QString status2 = sendData["status2"].toString();
+
+                    controlRoadLight(device,status1,status2);
+
+
+//                    controlRoadLight(device);
+
+
                 }else{
                     qDebug() << "unknowed sendType";
                 }
 
-                QVariantMap sendData = data["sendData"].toMap();
-                qDebug() << "device:" << sendData["device"].toString();
-                qDebug() << "directionData:" << sendData["directionData"];
+//                QVariantMap sendData = data["sendData"].toMap();
+//                qDebug() << "device:" << sendData["device"].toString();
+//                qDebug() << "directionData:" << sendData["directionData"];
             }
         }else{
             qFatal(error.errorString().toUtf8().constData());
@@ -166,7 +196,7 @@ void ServerWidget::controlDirection(QString device,QString direction)
 
 }
 
-void ServerWidget::controlCarLight(QString device,QString headLeft,QString headRight,QStirng roofLigntRed,QString rootLightBlue)
+void ServerWidget::controlCarLight(QString device,QString headLeft,QString headRight,QString roofLigntRed,QString rootLightBlue)
 {
     /*车灯控制
      * 0x00 0x04 0x00 0x$1 0x$2 0x$3 0xff
@@ -185,7 +215,9 @@ void ServerWidget::controlCarLight(QString device,QString headLeft,QString headR
     QString datafield = "0";//数据域
     QString temp = headLeft+headRight+roofLigntRed+rootLightBlue;
 
-     qDebug() << QString::number(temp.toInt(&ok,2),16); //str="3f";
+    bool ok = true;
+
+    qDebug() << QString::number(temp.toInt(&ok,2),16); //str="3f";
     datafield.append(QString::number(temp.toInt(&ok,2),16));
 
     //拼接数据域
@@ -232,8 +264,10 @@ void ServerWidget::controlRoadLight(QString device,QString statusRoadLight1,QStr
      *位3-5代表第二组，置1代表开启，置0位关闭例如0x09,即为0000 1001，两组灯为红灯
      */
 
-
-    QString car = "";//小车短地址会不会经常变经常变就不知道是哪辆车了（虽然现在只有一辆）
+    qDebug() <<"controlRoadLight";
+    QString car = DeviceInfo::lightHashset.value("light1");//小车短地址会不会经常变经常变就不知道是哪辆车了（虽然现在只有一辆）
+//    car = DeviceInfo::carHashset;
+    qDebug() << "device : " << car << " %%%%%%%%%%%%%%%%%";
 
     QString command = "";
     //添加头
@@ -241,23 +275,37 @@ void ServerWidget::controlRoadLight(QString device,QString statusRoadLight1,QStr
     //拼接小车短地址
     command.append(car);
 
-    QString datafield = "00";//数据域
+    QString datafield = "0000";//数据域
     if("red"==statusRoadLight1){
-        datafield.append("001");
+        datafield.append("01");
     }else{
-        datafield.append("010");
+        datafield.append("10");
     }
-    if("red"==statusRoadLight1){
-        datafield.append("001");
+    if("red"==statusRoadLight2){
+        datafield.append("01");
     }else{
-        datafield.append("010");
+        datafield.append("10");
     }
     //拼接数据域
+    qDebug() << datafield;
+
+    bool ok = true;
+    int cdata = datafield.toInt(&ok,2);
+    datafield = QString::number(cdata, 16);
+//    int cda = cdata.toInt();
+//    QString::to
+
+    qDebug() << datafield;
+    if(datafield.size()==1){
+        datafield = "0"+datafield;
+    }
     command.append(datafield);
     //结束位
     command.append("ff");
 
-    emit readMessageSignal(command.toStdString().c_str());
+    qDebug() << command.toStdString().c_str() << "   $ controlRoadLight";
+
+    emit readMessageSignal(command);
 }
 
 

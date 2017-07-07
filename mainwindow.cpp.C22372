@@ -52,7 +52,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     connect(&displayTimer, SIGNAL(timeout()), this, SLOT(displaySlot()));
     connect(&autoSendTimer, SIGNAL(timeout()), this, SLOT(on_sendBtn_clicked()));
-    //    connect(ui->sendBtn,SIGNAL(clicked()),this,SLOT(on_sendBtn_clicked()));
+//    connect(ui->sendBtn,SIGNAL(clicked()),this,SLOT(on_sendBtn_clicked()));
     connect(serialPort, SIGNAL(readyRead()), this, SLOT(readSlot()));
     connect(ui->openPortAct, SIGNAL(triggered()),this, SLOT(on_openOrCloseBtn_clicked()));
     connect(ui->closeAct, SIGNAL(triggered()), this, SLOT(close()));
@@ -67,17 +67,13 @@ MainWindow::MainWindow(QWidget *parent) :
 
     //服务器
     singleServer = ServerWidget::getInstance();
-//    connect(singServer,SIGNAL(),
-//            );
 
-
-    connect(singleServer,SIGNAL(readMessageSignal(QString)),
-            this,SLOT(server_send_to_serial_port(QString)));//json转16进制到底层
-
-    //    connect(this,SIGNAL(sendMegSignal(QByteArray)),
-    //            this,SLOT(test_time(QByteArray)));
-    //    connect(ui->startServer,SIGNAL(clicked(bool)),
-    //            singleServer,SLOT(startTcpserver()));
+    connect(singleServer,SIGNAL(readMessageSignal(QByteArray)),
+            this,SLOT(server_send_to_serial_port(QByteArray)));//json转16进制到底层
+//    connect(this,SIGNAL(sendMegSignal(QByteArray)),
+//            this,SLOT(test_time(QByteArray)));
+//    connect(ui->startServer,SIGNAL(clicked(bool)),
+//            singleServer,SLOT(startTcpserver()));
     //记录设备模式
     connect(ui->logDeviceBtn,SIGNAL(clicked()),
             this,SLOT(setLogDevice()));
@@ -97,57 +93,34 @@ void MainWindow::logDevice(QByteArray data){
     }
     qDebug() << addr;
 
-    int i;
+    qDebug() <<　hex.at(１);
 
-    QString temp = "";
-    temp.append(hex.at(1));
-    i = temp.toInt();
+    if(1==hex.at(1)){
+        DeviceInfo *device = new DeviceInfo(DeviceInfo::DEVICE_TYPE_CAR,addr);
+        int i = DeviceInfo::carHashset.size();
+        i++;
+        DeviceInfo::carHashset.insert("car"+i,device);
+        QString temp = "";
+        temp.append("car");
+        temp.append(i),
+        temp.append("    ");
+        temp.append(addr);
+        ui->logDeviceTdt->append(temp);
+    }
 
-
-    //    QString q = hex.at(1).toString;
-    qDebug() << temp;
-
-        if(1==i){
-            if(DeviceInfo::carHashset.key(addr).size()==0){
-//            DeviceInfo *device = new DeviceInfo(DeviceInfo::DEVICE_TYPE_CAR,addr);
-            int i = DeviceInfo::carHashset.size();
-            i++;
-            QString n = QString::number(i, 10);
-            DeviceInfo::carHashset.insert("car"+i,addr);
-            QString temp = "";
-            temp.append("car");
-            temp.append(n),
-                    temp.append("    ");
-            temp.append(addr);
-            ui->logDeviceTdt->append(temp);
-            }
-        }
-
-        if(0==i){
-            if(DeviceInfo::lightHashset.key(addr).size()==0){
-//            DeviceInfo *device = new DeviceInfo(DeviceInfo::DEVICE_TYPE_CAR,addr);
-            int i = DeviceInfo::lightHashset.size();
-            i++;
-            QString n = QString::number(i, 10);
-            QString key = "light";
-
-            key.append(tr("%1").arg(i));
-            qDebug() << key << "   key";
-
-            DeviceInfo::lightHashset.insert(key,addr);
-            qDebug() << DeviceInfo::lightHashset.size() << DeviceInfo::lightHashset.value("light1");
-            //        ui->logDeviceTdt->append();
-            QString temp = "";
-
-            temp.append("light");
-            temp.append(n),
-                    temp.append("    ");
-            temp.append(addr);
-            ui->logDeviceTdt->append(temp);
-            }
-
-        }
-
+    if(2==hex.at(1)){
+        DeviceInfo *device = new DeviceInfo(DeviceInfo::DEVICE_TYPE_CAR,addr);
+        int i = DeviceInfo::lightHashset.size();
+        i++;
+        DeviceInfo::lightHashset.insert("light"+i,device);
+//        ui->logDeviceTdt->append();
+        QString temp = "";
+        temp.append("light");
+        temp.append(i),
+        temp.append("    ");
+        temp.append(addr);
+        ui->logDeviceTdt->append(temp);
+    }
 }
 void MainWindow::setLogDevice(){
     isLogDevice = ui->logDeviceCbx->isChecked();
@@ -239,7 +212,7 @@ void MainWindow::readSlot()
 {
     QByteArray  temp;
     temp = serialPort->readAll();
-    //    qDebug() << temp.toHex()<< "%%";
+//    qDebug() << temp.toHex()<< "%%";
     if(!temp.isEmpty())
     {
         readMutex.lock();
@@ -268,7 +241,7 @@ void MainWindow::displaySlot()
     QByteArray temp = readData.toHex();
     if(!readData.isEmpty()){
         if(ui->hexRecv->isChecked())
-        {
+        { 
             for(int i=0; i<temp.length(); i+=2)
             {
                 ui->textEdit->insertPlainText(tr("%1%2 ")\
@@ -437,10 +410,10 @@ void MainWindow::on_openOrCloseBtn_clicked()
             else
             {
                 QMessageBox::warning(this, tr("Open Port Error."),\
-                                     tr("Open [%1] Error:%2")\
-                                     .arg(portName)\
-                                     .arg(serialPort->errorString()),\
-                                     QMessageBox::Ok);
+                                 tr("Open [%1] Error:%2")\
+                                 .arg(portName)\
+                                 .arg(serialPort->errorString()),\
+                                 QMessageBox::Ok);
                 return;
             }
         }
@@ -451,10 +424,10 @@ void MainWindow::on_refreshPortAct_triggered()
 {
     refreshPort();
 }
-void MainWindow::server_send_to_serial_port(QString data)
+void MainWindow::server_send_to_serial_port(QByteArray data)
 {
     qDebug() << "server_send_to_serial_port";
-    //    QByteArray writeData;
+//    QByteArray writeData;
 
     if(!isPortOpened)
     {
@@ -465,20 +438,33 @@ void MainWindow::server_send_to_serial_port(QString data)
         return;
     }
 
-//    QByteArray  data;
-//    QString     src = ui->sendLdt->text();
-//    stringToHex(src, data);
-//    qDebug() << "Hexsend $$$$$$$$$$$$$$$$$";
-//    serialPort->write(data);
-//    txCount += data.count();
+//    writeData = ui->sendLdt->text().toLocal8Bit();
+//    if(writeData.isEmpty()){
+//        QMessageBox::information(this, tr("Send Data."),\
+//                                 tr("No data to send."),\
+//                                 QMessageBox::Ok);
+//        this->on_autoSendCheckBox_clicked(false);
+//    }
+//    else
+//    {
+//        if(ui->hexSend->isChecked())
+//        {
+            QByteArray  hexData;
+            QString src = data;
+//            QString     src = ui->sendLdt->text();
+            stringToHex(src, hexData);
+            serialPort->write(hexData);
+//            txCount += data.count();
+//        }
+//        else
+//        {
+//            serialPort->write(writeData);
+//            txCount += writeData.count();
+//        }
 
-//    qDebug() << data;
-    QByteArray  hexData;
-    QString src = data;
-    qDebug() << src << "  &&&&&&&&&&&";
-//                QString     src = ui->sendLdt->text();
-    stringToHex(src, hexData);
-    serialPort->write(hexData);  
+//        ui->txCounterLbl->setText(tr("TX: %1").arg(txCount));
+//    }
+
 }
 
 void MainWindow::on_sendBtn_clicked()
@@ -509,7 +495,6 @@ void MainWindow::on_sendBtn_clicked()
             QByteArray  data;
             QString     src = ui->sendLdt->text();
             stringToHex(src, data);
-            qDebug() << "Hexsend $$$$$$$$$$$$$$$$$";
             serialPort->write(data);
             txCount += data.count();
         }
@@ -739,7 +724,7 @@ void    MainWindow::deleteFrame()
                 delete frameList[i];
                 frameList.removeAt(i);
                 i--;
-            }
+                }
         }
         isDelete = false;
         ui->deleteFrameBtn->setText(tr("Remove"));
@@ -751,11 +736,11 @@ void    MainWindow::deleteFrame()
     {//选择要删除的帧
         if(frameList.isEmpty()){
             QMessageBox::warning(this, tr("Remove Frame"),\
-                                 tr("No Frame To Remove."),\
-                                 QMessageBox::Ok);
+                                     tr("No Frame To Remove."),\
+                                     QMessageBox::Ok);
         } else {
             for(int i=0; i<frameList.size(); i++){
-                frameList[i]->setDelCheckEnable(true);
+                    frameList[i]->setDelCheckEnable(true);
             }
             isDelete = true;
             ui->deleteFrameBtn->setText(tr("OK"));
